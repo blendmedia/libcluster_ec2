@@ -172,17 +172,19 @@ defmodule ClusterEC2.Strategy.Tags do
   end
 
   defp local_instance_tag_value(tag_name, instance_id, region) do
-    Logger.debug("tag_name: #{tag_name}, instance_id: #{tag_name} region: #{region}")
+    Logger.debug("tag_name: #{tag_name}, instance_id: #{instance_id} region: #{region}")
 
     ExAws.EC2.describe_instances(instance_id: instance_id)
     |> local_instance_tags(region)
     |> Map.get(tag_name)
   end
 
-  defp local_instance_tags(body, region) do
-    Logger.debug("body: #{inspect(body)}, region: #{region}")
-    case ExAws.request(body, region: region) do
-      {:ok, body} -> extract_tags(body)
+  defp local_instance_tags(describe_instances_query, region) do
+    Logger.debug("describe_instances_query: #{inspect(describe_instances_query)}, region: #{region}")
+    case ExAws.request(describe_instances_query, region: region) do
+      {:ok, response} ->
+        Logger.debug("Describe instances response: #{inspect(response)}")
+        extract_tags(response)
       {:error, _} -> %{}
     end
   end
