@@ -39,6 +39,8 @@ defmodule ClusterEC2.Strategy.Tags do
 
   @default_polling_interval 5_000
 
+  require Logger
+
   def start_link(opts) do
     Application.ensure_all_started(:tesla)
     Application.ensure_all_started(:ex_aws)
@@ -81,6 +83,9 @@ defmodule ClusterEC2.Strategy.Tags do
         added = MapSet.difference(new_nodelist, state.meta)
         removed = MapSet.difference(state.meta, new_nodelist)
 
+        Logger.debug("Nodes added: #{inspect(added)}")
+        Logger.debug("Nodes removed: #{inspect(removed)}")
+
         new_nodelist =
           case Cluster.Strategy.disconnect_nodes(topology, disconnect, list_nodes, MapSet.to_list(removed)) do
             :ok ->
@@ -120,6 +125,7 @@ defmodule ClusterEC2.Strategy.Tags do
 
   @spec get_nodes(State.t()) :: {:ok, [atom()]} | {:error, []}
   defp get_nodes(%State{topology: topology, config: config}) do
+    Logger.debug("config: #{inspect(config)}")
     instance_id = ClusterEC2.local_instance_id()
     region = ClusterEC2.instance_region()
     tag_name = Keyword.fetch!(config, :ec2_tagname)
@@ -166,12 +172,15 @@ defmodule ClusterEC2.Strategy.Tags do
   end
 
   defp local_instance_tag_value(tag_name, instance_id, region) do
+    Logger.debug("tag_name: #{tag_name}, instance_id: #{tag_name} region: #{region}")
+
     ExAws.EC2.describe_instances(instance_id: instance_id)
     |> local_instance_tags(region)
     |> Map.get(tag_name)
   end
 
   defp local_instance_tags(body, region) do
+    Logger.debug("body: #{inspect(body)}, region: #{region}")
     case ExAws.request(body, region: region) do
       {:ok, body} -> extract_tags(body)
       {:error, _} -> %{}
@@ -179,6 +188,7 @@ defmodule ClusterEC2.Strategy.Tags do
   end
 
   defp extract_tags(%{body: xml}) do
+    Logger.debug("xml: #{inspect(xml)}")
     xml
     |> SweetXml.xpath(
       ~x"//DescribeInstancesResponse/reservationSet/item/instancesSet/item/tagSet/item"l,
