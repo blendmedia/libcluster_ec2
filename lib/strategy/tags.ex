@@ -16,7 +16,8 @@ defmodule ClusterEC2.Strategy.Tags do
               app_prefix: "app",
               ip_to_nodename: &my_nodename_func/2,
               ip_type: :private,
-              polling_interval: 10_000]]]
+              polling_interval: 10_000]]],
+              show_debug: false
 
   ## Configuration Options
 
@@ -28,6 +29,7 @@ defmodule ClusterEC2.Strategy.Tags do
   | `:ip_type` | no | One of :private or :public, defaults to :private |
   | `:ip_to_nodename` | no | defaults to `app_prefix@ip` but can be used to override the nodename |
   | `:polling_interval` | no | Number of milliseconds to wait between polls to the EC2 api. Defaults to 5_000 |
+  | `:show_debug` | no | True or false, whether or not to show the debug log. Defaults to true |
   """
 
   use GenServer
@@ -52,7 +54,7 @@ defmodule ClusterEC2.Strategy.Tags do
   def init([%State{} = state]) do
     state = state |> Map.put(:meta, MapSet.new())
 
-    {:ok, state, 0}
+    {:ok, load(state)}
   end
 
   # libcluster ~> 2.0
@@ -66,7 +68,7 @@ defmodule ClusterEC2.Strategy.Tags do
       meta: MapSet.new([])
     }
 
-    {:ok, state, 0}
+    {:ok, load(state)}
   end
 
   @impl GenServer
@@ -74,10 +76,15 @@ defmodule ClusterEC2.Strategy.Tags do
     handle_info(:load, state)
   end
 
-  def handle_info(
-        :load,
-        %State{topology: topology, connect: connect, disconnect: disconnect, list_nodes: list_nodes} = state
-      ) do
+  def handle_info(:load, %State{} = state) do
+    {:noreply, load(state)}
+  end
+
+  def handle_info(_, state) do
+    {:noreply, state}
+  end
+
+  defp load(%State{topology: topology, connect: connect, disconnect: disconnect, list_nodes: list_nodes} = state) do
     case get_nodes(state) do
       {:ok, new_nodelist} ->
         added = MapSet.difference(new_nodelist, state.meta)
@@ -111,16 +118,12 @@ defmodule ClusterEC2.Strategy.Tags do
           end
 
         Process.send_after(self(), :load, Keyword.get(state.config, :polling_interval, @default_polling_interval))
-        {:noreply, %{state | :meta => new_nodelist}}
+        %{state | :meta => new_nodelist}
 
       _ ->
         Process.send_after(self(), :load, Keyword.get(state.config, :polling_interval, @default_polling_interval))
-        {:noreply, state}
+        state
     end
-  end
-
-  def handle_info(_, state) do
-    {:noreply, state}
   end
 
   @spec get_nodes(State.t()) :: {:ok, [atom()]} | {:error, []}
@@ -132,13 +135,14 @@ defmodule ClusterEC2.Strategy.Tags do
     tag_value = Keyword.get(config, :ec2_tagvalue, &local_instance_tag_value(&1, instance_id, region))
     app_prefix = Keyword.get(config, :app_prefix, "app")
     ip_to_nodename = Keyword.get(config, :ip_to_nodename, &ip_to_nodename/2)
+    show_debug? = Keyword.get(config, :show_debug, true)
 
     cond do
       tag_name != nil and tag_value != nil and app_prefix != nil and instance_id != "" and region != "" ->
         params = [filters: ["tag:#{tag_name}": fetch_tag_value(tag_name, tag_value), "instance-state-name": "running"]]
         request = ExAws.EC2.describe_instances(params)
         require Logger
-        Logger.debug("#{inspect(request)}")
+        if show_debug?, do: Logger.debug("#{inspect(request)}")
 
         case ExAws.request(request, region: region) do
           {:ok, %{body: body}} ->
